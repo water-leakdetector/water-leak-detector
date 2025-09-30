@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>漏水声波监测仪</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { 
+            font-family: sans-serif; 
+            text-align: center; 
+            padding: 20px;
+            background: #f0f8ff;
+        }
+        #myChart {
+            max-width: 100%;
+            margin: 20px auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            padding: 12px 25px;
+            font-size: 16px;
+            margin: 10px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        #startBtn { 
+            background: #4CAF50; 
+            color: white; 
+        }
+        #stopBtn { 
+            background: #f44336; 
+            color: white; 
+        }
+        button:hover {
+            opacity: 0.9;
+            transform: scale(1.05);
+        }
+        #status {
+            font-weight: bold;
+            font-size: 18px;
+            margin: 15px 0;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚰 水管漏水声波实时监测系统</h1>
+        <p>状态：<span id="status">等待开始监听...</span></p >
+        <canvas id="myChart" width="400" height="200"></canvas>
+        <br>
+        <button id="startBtn">开始监听</button>
+        <button id="stopBtn">停止监听</button>
+        <p><small>将手机麦克风靠近水管或听诊器，观察波形变化</small></p >
+    </div>
+
+    <script>
+        const ctx = document.getElementById('myChart').getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statusEl = document.getElementById('status');
+
+        let audioContext;
+        let analyser;
+        let dataArray;
+        let chart;
+        let animationId;
+
+        // 初始化图表
+        const chartConfig = {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: '声音频率',
+                    data: [],
+                    borderColor: '#4CAF50',
+                    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: false,
+                animation: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 256,
+                        grid: {
+                            color: 'rgba(0,0,0,0.1)'
+                        }
+                    },
+                    x: {
+                        grid: {
+                            color: 'rgba(0,0,0,0.1)'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: true
+                    }
+                }
+            }
+        };
+        
+        chart = new Chart(ctx, chartConfig);
+
+        // 开始监听
+        startBtn.onclick = async () => {
+            statusEl.textContent = "🎤 监听中...（请允许使用麦克风）";
+            statusEl.style.color = "#4CAF50";
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false
+                    } 
+                });
+                
+                audioContext = new AudioContext({ sampleRate: 16000 });
+                analyser = audioContext.createAnalyser();
+                const source = audioContext.createMediaStreamSource(stream);
+                source.connect(analyser);
+                
+                analyser.fftSize = 512;
+                analyser.smoothingTimeConstant = 0.8;
+                const bufferLength = analyser.frequencyBinCount;
+                dataArray = new Uint8Array(bufferLength);
+                
+                updateChart();
+                
+            } catch (err) {
+                statusEl.textContent = "❌ 无法访问麦克风: " + err.message;
+                statusEl.style.color = "#f44336";
+                console.error("麦克风访问错误:", err);
+            }
+        };
+
+        // 停止监听
+        stopBtn.onclick = () => {
+            statusEl.textContent = "⏹️ 已停止监听";
+            statusEl.style.color = "#666";
+            if (audioContext) {
+                audioContext.close().catch(console.error);
+            }
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+            }
+        };
+
+        // 更新图表
+        function updateChart() {
+            if (!analyser) return;
+            
+            animationId = requestAnimationFrame(updateChart);
+            analyser.getByteFrequencyData(dataArray);
+            
+            const simplifiedData = [];
+            const step = Math.floor(dataArray.length / 100);
+            
+            for (let i = 0; i < dataArray.length; i += step) {
+                let sum = 0;
+                for (let j = 0; j < step && (i + j) < dataArray.length; j++) {
+                    sum += dataArray[i + j];
+                }
+                simplifiedData.push(sum / step);
+            }
+            
+            chart.data.labels = Array.from({length: simplifiedData.length}, (_, i) => i);
+            chart.data.datasets[0].data = simplifiedData;
+            chart.update('none');
+        }
+
+        // 页面卸载时清理资源
+        window.addEventListener('beforeunload', () => {
+            if (audioContext) {
+                audioContext.close().catch(console.error);
+            }
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+            }
+        });
+    </script>
+</body>
+</html>
